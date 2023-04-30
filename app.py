@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from transformers import AutoFeatureExtractor, AutoModelForImageClassification
 
-dataset = load_dataset("beans")
+dataset = datasets.load_dataset("beans")
 
 extractor = AutoFeatureExtractor.from_pretrained("saved_model_files")
 model = AutoModelForImageClassification.from_pretrained("saved_model_files")
