@@ -2,6 +2,8 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   CloudFormation template to create an S3 bucket, an IAM role, a Lambda function, and an API Gateway to handle Twilio SMS replies, including media uploads.
 
+
+
 Parameters:
   TwilioAccountSid:
     Type: String
