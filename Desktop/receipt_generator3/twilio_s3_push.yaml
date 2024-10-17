@@ -1,0 +1,294 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CloudFormation template to create an S3 bucket, an IAM role, a Lambda function, and an API Gateway to handle Twilio SMS replies, including media uploads.
+
+Parameters:
+  TwilioAccountSid:
+    Type: String
+    Description: "Twilio Account SID"
+  TwilioAuthToken:
+    Type: String
+    Description: "Twilio Auth Token"
+  S3BucketName:
+    Type: String
+    Description: "The name of the S3 bucket to store messages and media"
+
+Resources:
+  TwilioRepliesBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: TwilioSMSHandler
+        - Key: Environment
+          Value: Production
+        - Key: CostCenter
+          Value: TwilioIntegration
+
+  TwilioS3UploadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: "TwilioS3UploadRole"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: "lambda.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "TwilioS3UploadPolicy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                  - "s3:ListBucket"
+                Resource: 
+                  - !Sub "arn:aws:s3:::${S3BucketName}/*"
+                  - !Sub "arn:aws:s3:::${S3BucketName}"
+        - PolicyName: "LambdaLoggingPolicy"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"
+        - PolicyName: "SSMParameterStoreAccess"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "ssm:GetParameter"
+                Resource: 
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/twilio/*"
+      Tags:
+        - Key: Project
+          Value: TwilioSMSHandler
+        - Key: Environment
+          Value: Production
+        - Key: CostCenter
+          Value: TwilioIntegration
+
+  TwilioRequestsLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: "TwilioRequestsLayer"
+      Content:
+        S3Bucket: s3layerbucket878787  # Replace with your bucket name
+        S3Key: "requests_layer.zip"    # Replace with the S3 key of the uploaded zip
+      CompatibleRuntimes:
+        - python3.8
+        - python3.9
+
+  TwilioWebhookLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "TwilioWebhookHandler"
+      Handler: "index.handler"
+      Runtime: python3.8
+      Role: !GetAtt TwilioS3UploadRole.Arn
+      Layers:
+        - !Ref TwilioRequestsLayer
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          import requests
+          import logging
+          import urllib.parse
+          from urllib.parse import unquote
+          from botocore.exceptions import ClientError
+
+          # Set up logging
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          # Initialize S3 client
+          s3 = boto3.client('s3', region_name='us-west-2')
+          s3_bucket_name = os.environ['S3_BUCKET_NAME']
+
+          # Function to get parameters from AWS Systems Manager (SSM)
+          def get_parameter(name):
+              ssm = boto3.client('ssm')
+              try:
+                  response = ssm.get_parameter(Name=name, WithDecryption=True)
+                  return response['Parameter']['Value']
+              except Exception as e:
+                  logger.error(f"Error retrieving parameter {name}: {str(e)}")
+                  return None
+
+          # Retrieve Twilio credentials securely
+          twilio_account_sid = get_parameter('/twilio/account_sid')
+          twilio_auth_token = get_parameter('/twilio/auth_token')
+
+          logger.info(f"Twilio Account SID (partial): {twilio_account_sid[:6]}****")
+          logger.info(f"Auth Token retrieved: {'Yes' if twilio_auth_token else 'No'}")
+
+          # Helper function to upload logs or messages to S3
+          def log_to_s3(log_content, log_file_name):
+              try:
+                  s3.put_object(Bucket=s3_bucket_name, Key=log_file_name, Body=log_content)
+                  logger.info(f"Successfully uploaded {log_file_name} to S3")
+              except ClientError as e:
+                  logger.error(f"Failed to upload {log_file_name} to S3: {str(e)}")
+
+          # Function to download and upload media files to S3
+          def download_and_upload_media(message_sid, media_sid, index, from_number):
+              try:
+                  media_url = f"https://api.twilio.com/2010-04-01/Accounts/{twilio_account_sid}/Messages/{message_sid}/Media/{media_sid}"
+                  
+                  logger.info(f"Attempting to download media from URL: {media_url}")
+                  
+                  response = requests.get(media_url, auth=(twilio_account_sid, twilio_auth_token))
+                  
+                  logger.info(f"Twilio API response status: {response.status_code}")
+                  logger.info(f"Twilio API response headers: {response.headers}")
+
+                  if response.status_code == 200:
+                      media_content_type = response.headers.get('Content-Type', 'application/octet-stream')
+                      extension = media_content_type.split('/')[-1]
+                      media_file_name = f"media/{from_number}_media_{index}.{extension}"
+                      
+                      s3.put_object(Bucket=s3_bucket_name, Key=media_file_name, Body=response.content)
+                      logger.info(f"Successfully uploaded media file {media_file_name} to S3")
+                      return True
+                  else:
+                      logger.error(f"Failed to download media {index} from Twilio with status code {response.status_code}")
+                      logger.error(f"Response content: {response.text}")
+                      return False
+              except Exception as e:
+                  logger.error(f"Error downloading or uploading media {index}: {str(e)}")
+                  return False
+
+          # Main Lambda handler function
+          def handler(event, context):
+              logger.info(f"Received event: {json.dumps(event)}")
+              
+              try:
+                  # Parse the incoming form-encoded data
+                  body_params = urllib.parse.parse_qs(event['body'])
+                  from_number = body_params.get('From', ['Unknown'])[0]
+                  message_sid = body_params.get('MessageSid', [''])[0]
+                  num_media = int(body_params.get('NumMedia', [0])[0])
+
+                  # Log the message details to S3 as CSV
+                  log_data = {
+                      'From': from_number,
+                      'Body': body_params.get('Body', [''])[0],
+                      'MessageSid': message_sid,
+                      'NumMedia': num_media
+                  }
+                  csv_content = ','.join(f"{key}={value}" for key, value in log_data.items())
+                  log_to_s3(csv_content, f"messages/{from_number}_message.csv")
+
+                  # Process media files (you might want to do this asynchronously in a production environment)
+                  for i in range(num_media):
+                      media_url_key = f'MediaUrl{i}'
+                      if media_url_key in body_params:
+                          media_url = body_params[media_url_key][0]
+                          media_sid = media_url.split('/')[-1]
+                          download_and_upload_media(message_sid, media_sid, i, from_number)
+
+                  # Prepare TwiML response
+                  twiml_response = '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Thank you for your message.</Message></Response>'
+
+                  return {
+                      'statusCode': 200,
+                      'headers': {
+                          'Content-Type': 'application/xml'
+                      },
+                      'body': twiml_response
+                  }
+              except Exception as e:
+                  logger.error(f"Error processing webhook: {str(e)}")
+                  # Return a TwiML response even in case of error
+                  error_twiml = '<?xml version="1.0" encoding="UTF-8"?><Response><Message>An error occurred processing your message.</Message></Response>'
+                  return {
+                      'statusCode': 200,
+                      'headers': {
+                          'Content-Type': 'application/xml'
+                      },
+                      'body': error_twiml
+                  }
+
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref S3BucketName
+      Tags:
+        - Key: Project
+          Value: TwilioSMSHandler
+        - Key: Environment
+          Value: Production
+        - Key: CostCenter
+          Value: TwilioIntegration
+
+  TwilioWebhookApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: "TwilioWebhookApi"
+      Description: "API Gateway to handle Twilio Webhook requests"
+      Tags:
+        - Key: Project
+          Value: TwilioSMSHandler
+        - Key: Environment
+          Value: Production
+        - Key: CostCenter
+          Value: TwilioIntegration
+
+  TwilioWebhookResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt TwilioWebhookApi.RootResourceId
+      PathPart: "sms"
+      RestApiId: !Ref TwilioWebhookApi
+
+  TwilioWebhookMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: "NONE"
+      HttpMethod: "POST"
+      ResourceId: !Ref TwilioWebhookResource
+      RestApiId: !Ref TwilioWebhookApi
+      Integration:
+        IntegrationHttpMethod: "POST"
+        Type: "AWS_PROXY"
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TwilioWebhookLambda.Arn}/invocations"
+
+  TwilioWebhookPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt TwilioWebhookLambda.Arn
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TwilioWebhookApi}/*/POST/sms"
+  
+  TwilioWebhookDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref TwilioWebhookApi
+      StageName: "prod"
+    DependsOn:
+      - TwilioWebhookMethod
+
+Outputs:
+  S3BucketName:
+    Description: "Name of the S3 bucket"
+    Value: !Ref S3BucketName
+
+  TwilioWebhookUrl:
+    Description: "URL of the Twilio Webhook"
+    Value: !Sub "https://${TwilioWebhookApi}.execute-api.${AWS::Region}.amazonaws.com/prod/sms"
