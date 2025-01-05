@@ -1,0 +1,92 @@
+---
+import Layout from '../layouts/Layout.astro';
+import CategoryNav from '../components/CategoryNav.astro';
+
+const posts = await Astro.glob('./blog/**/*.md');
+const sortedPosts = posts.sort((a, b) => 
+	new Date(b.frontmatter.date).getTime() - new Date(a.frontmatter.date).getTime()
+);
+---
+
+<Layout title="Journey & Growth">
+	<main>
+		<h1>Journey & Growth</h1>
+		<CategoryNav />
+		
+		<div class="posts-grid">
+			{sortedPosts.map(post => (
+				<article class="post-card">
+					<a href={post.url}>
+						<h2>{post.frontmatter.title}</h2>
+						<p>{post.frontmatter.description}</p>
+						<time datetime={post.frontmatter.date}>
+							{new Date(post.frontmatter.date).toLocaleDateString('en-US', {
+								year: 'numeric',
+								month: 'long',
+								day: 'numeric'
+							})}
+						</time>
+					</a>
+				</article>
+			))}
+		</div>
+	</main>
+</Layout>
+
+<style>
+	main {
+		padding: 2rem 0;
+	}
+
+	h1 {
+		text-align: center;
+		font-size: 3rem;
+		margin-bottom: 2rem;
+	}
+
+	.posts-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+		gap: 2rem;
+		padding: 1rem 0;
+	}
+
+	.post-card {
+		background: white;
+		border-radius: 8px;
+		overflow: hidden;
+		transition: transform 0.2s ease, box-shadow 0.2s ease;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+	}
+
+	.post-card:hover {
+		transform: translateY(-4px);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+	}
+
+	.post-card a {
+		display: block;
+		padding: 1.5rem;
+		color: inherit;
+		text-decoration: none;
+	}
+
+	.post-card h2 {
+		font-size: 1.5rem;
+		margin-bottom: 1rem;
+		color: var(--accent-color);
+	}
+
+	.post-card p {
+		color: #666;
+		margin-bottom: 1rem;
+		line-height: 1.6;
+	}
+
+	.post-card time {
+		display: block;
+		font-size: 0.9rem;
+		color: #999;
+		font-style: italic;
+	}
+</style>

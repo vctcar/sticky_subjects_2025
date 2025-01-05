@@ -1,0 +1,89 @@
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor/IDE Files
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*.bak
+
+# Dependencies
+node_modules/
+bower_components/
+jspm_packages/
+package-lock.json
+yarn.lock
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.nuxt/
+.cache/
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.production
+*.pem
+.secrets
+
+# Logs and databases
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.sqlite
+*.db
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Testing
+coverage/
+.nyc_output
+.jest
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Draft posts and personal notes
+drafts/
+_drafts/
+personal-notes/
+todo.md
+
+# Large media files (consider Git LFS instead)
+*.mp4
+*.mov
+*.avi
+*.wmv
+*.flv
+*.mkv
+*.iso
+*.zip
+*.rar
+*.7z
+*.tar.gz
+
+# Sensitive information
+**/credentials.*
+**/password.*
+**/private.*

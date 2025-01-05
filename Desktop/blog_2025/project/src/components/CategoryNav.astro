@@ -1,0 +1,44 @@
+---
+const categories = [
+	{ name: 'Cloud & Data', path: '/rock/cloud-data' },
+	{ name: 'Financial Growth', path: '/rock/financial' },
+	{ name: 'Brazilian Jiu-Jitsu', path: '/vessel/bjj' },
+	{ name: 'Business Ventures', path: '/tree/business' }
+];
+---
+
+<nav class="category-nav">
+	<ul>
+		{categories.map(category => (
+			<li><a href={category.path}>{category.name}</a></li>
+		))}
+	</ul>
+</nav>
+
+<style>
+	.category-nav {
+		margin-bottom: 2rem;
+	}
+
+	.category-nav ul {
+		display: flex;
+		gap: 1rem;
+		list-style: none;
+		flex-wrap: wrap;
+	}
+
+	.category-nav a {
+		display: inline-block;
+		padding: 0.5rem 1rem;
+		border: 1px solid var(--border-color);
+		border-radius: 20px;
+		font-size: 0.9rem;
+		transition: all 0.2s ease;
+	}
+
+	.category-nav a:hover {
+		background: var(--accent-color);
+		color: white;
+		border-color: var(--accent-color);
+	}
+</style>
